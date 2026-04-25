@@ -2,7 +2,28 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 
-// 获取今日统计数据
+const CACHE_TTL = 5 * 60 * 1000;
+const cache = {
+  orderTrend: { data: null, timestamp: 0 },
+  productTop10: { data: null, timestamp: 0 },
+  orderStatus: { data: null, timestamp: 0 }
+};
+
+function isCacheValid(cacheKey) {
+  const entry = cache[cacheKey];
+  return entry.data && (Date.now() - entry.timestamp < CACHE_TTL);
+}
+
+function setCache(cacheKey, data) {
+  cache[cacheKey] = { data, timestamp: Date.now() };
+}
+
+function clearStatsCache() {
+  cache.orderTrend = { data: null, timestamp: 0 };
+  cache.productTop10 = { data: null, timestamp: 0 };
+  cache.orderStatus = { data: null, timestamp: 0 };
+}
+
 router.get('/today', async (req, res, next) => {
   try {
     const result = await pool.query(`
@@ -22,7 +43,6 @@ router.get('/today', async (req, res, next) => {
   }
 });
 
-// 获取本月统计数据
 router.get('/month', async (req, res, next) => {
   try {
     const result = await pool.query(`
@@ -43,7 +63,153 @@ router.get('/month', async (req, res, next) => {
   }
 });
 
-// 获取最近 30 天销售额趋势
+router.get('/order-trend', async (req, res, next) => {
+  try {
+    const { range = '30' } = req.query;
+    const days = parseInt(range) || 30;
+    const validDays = [7, 30, 90];
+    const actualDays = validDays.includes(days) ? days : 30;
+    
+    let dateTruncUnit = 'day';
+    if (actualDays === 90) {
+      dateTruncUnit = 'week';
+    }
+
+    const query = `
+      SELECT 
+        DATE_TRUNC('${dateTruncUnit}', created_at)::date as period,
+        COUNT(*) as order_count,
+        COALESCE(SUM(total_amount), 0) as total_sales
+      FROM orders
+      WHERE created_at >= CURRENT_DATE - INTERVAL '${actualDays} days'
+        AND status IN ('paid', 'shipped', 'completed')
+      GROUP BY period
+      ORDER BY period
+    `;
+
+    const result = await pool.query(query);
+    
+    let data;
+    if (dateTruncUnit === 'week') {
+      data = result.rows.map(row => ({
+        period: row.period,
+        orderCount: parseInt(row.order_count),
+        totalSales: parseFloat(row.total_sales)
+      }));
+    } else {
+      const generateDateList = () => {
+        const dates = [];
+        const today = new Date();
+        for (let i = actualDays - 1; i >= 0; i--) {
+          const date = new Date(today);
+          date.setDate(date.getDate() - i);
+          dates.push(date.toISOString().split('T')[0]);
+        }
+        return dates;
+      };
+
+      const dateList = generateDateList();
+      const dataMap = {};
+      result.rows.forEach(row => {
+        dataMap[row.period] = {
+          orderCount: parseInt(row.order_count),
+          totalSales: parseFloat(row.total_sales)
+        };
+      });
+
+      data = dateList.map(date => ({
+        period: date,
+        orderCount: dataMap[date]?.orderCount || 0,
+        totalSales: dataMap[date]?.totalSales || 0
+      }));
+    }
+
+    res.json({ days: actualDays, unit: dateTruncUnit, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/product-top10', async (req, res, next) => {
+  try {
+    if (isCacheValid('productTop10')) {
+      return res.json(cache.productTop10.data);
+    }
+
+    const query = `
+      SELECT 
+        p.id,
+        p.name as product_name,
+        c.name as category_name,
+        COALESCE(SUM(oi.quantity), 0) as total_quantity,
+        COALESCE(SUM(oi.subtotal), 0) as total_sales
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      LEFT JOIN order_items oi ON p.id = oi.product_id
+      LEFT JOIN orders o ON oi.order_id = o.id
+        AND o.status IN ('paid', 'shipped', 'completed')
+      GROUP BY p.id, p.name, c.id, c.name
+      ORDER BY total_quantity DESC
+      LIMIT 10
+    `;
+
+    const result = await pool.query(query);
+
+    const data = result.rows.map(row => ({
+      id: row.id,
+      productName: row.product_name,
+      categoryName: row.category_name,
+      totalQuantity: parseInt(row.total_quantity),
+      totalSales: parseFloat(row.total_sales)
+    }));
+
+    setCache('productTop10', data);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/order-status', async (req, res, next) => {
+  try {
+    if (isCacheValid('orderStatus')) {
+      return res.json(cache.orderStatus.data);
+    }
+
+    const STATUS_MAP = {
+      'pending_payment': '待付款',
+      'paid': '已付款',
+      'shipped': '已发货',
+      'completed': '已完成',
+      'cancelled': '已取消'
+    };
+
+    const query = `
+      SELECT 
+        status,
+        COUNT(*) as count
+      FROM orders
+      GROUP BY status
+      ORDER BY count DESC
+    `;
+
+    const result = await pool.query(query);
+
+    const total = result.rows.reduce((sum, row) => sum + parseInt(row.count), 0);
+    const data = result.rows.map(row => ({
+      status: row.status,
+      statusName: STATUS_MAP[row.status] || row.status,
+      count: parseInt(row.count),
+      percentage: total > 0 ? (parseInt(row.count) / total * 100) : 0
+    }));
+
+    setCache('orderStatus', data);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/sales-trend', async (req, res, next) => {
   try {
     const result = await pool.query(`
@@ -57,7 +223,6 @@ router.get('/sales-trend', async (req, res, next) => {
       ORDER BY date
     `);
     
-    // 生成完整的 30 天日期列表
     const generateDateList = () => {
       const dates = [];
       const today = new Date();
@@ -86,7 +251,6 @@ router.get('/sales-trend', async (req, res, next) => {
   }
 });
 
-// 获取各商品分类销售占比
 router.get('/category-share', async (req, res, next) => {
   try {
     const result = await pool.query(`
@@ -116,11 +280,9 @@ router.get('/category-share', async (req, res, next) => {
   }
 });
 
-// 获取仪表盘所有统计数据
 router.get('/dashboard', async (req, res, next) => {
   try {
     const [todayResult, monthResult, trendResult, categoryResult] = await Promise.all([
-      // 今日统计
       pool.query(`
         SELECT 
           COALESCE(SUM(total_amount), 0) as total_sales,
@@ -129,7 +291,6 @@ router.get('/dashboard', async (req, res, next) => {
         WHERE DATE(created_at) = CURRENT_DATE
           AND status IN ('paid', 'shipped', 'completed')
       `),
-      // 本月统计
       pool.query(`
         SELECT 
           COALESCE(SUM(total_amount), 0) as total_sales,
@@ -139,7 +300,6 @@ router.get('/dashboard', async (req, res, next) => {
           AND EXTRACT(MONTH FROM created_at) = EXTRACT(MONTH FROM CURRENT_DATE)
           AND status IN ('paid', 'shipped', 'completed')
       `),
-      // 30天趋势
       pool.query(`
         SELECT 
           DATE(created_at) as date,
@@ -150,13 +310,12 @@ router.get('/dashboard', async (req, res, next) => {
         GROUP BY DATE(created_at)
         ORDER BY date
       `),
-      // 分类占比
       pool.query(`
         SELECT 
           c.name as category_name,
           COALESCE(SUM(oi.subtotal), 0) as sales_amount
         FROM categories c
-        LEFT JOIN products p ON c.id = p.category_id
+        LEFT JOIN products p ON p.category_id = c.id
         LEFT JOIN order_items oi ON p.id = oi.product_id
         LEFT JOIN orders o ON oi.order_id = o.id
           AND o.status IN ('paid', 'shipped', 'completed')
@@ -165,7 +324,6 @@ router.get('/dashboard', async (req, res, next) => {
       `)
     ]);
 
-    // 处理 30 天趋势数据
     const generateDateList = () => {
       const dates = [];
       const today = new Date();
@@ -188,7 +346,6 @@ router.get('/dashboard', async (req, res, next) => {
       sales: salesMap[date] || 0
     }));
 
-    // 处理分类占比数据
     const totalSales = categoryResult.rows.reduce((sum, row) => sum + parseFloat(row.sales_amount), 0);
     const categoryShare = categoryResult.rows.map(row => ({
       category: row.category_name,
@@ -209,4 +366,9 @@ router.get('/dashboard', async (req, res, next) => {
   }
 });
 
-module.exports = router;
+router.post('/clear-cache', (req, res) => {
+  clearStatsCache();
+  res.json({ message: 'Cache cleared successfully' });
+});
+
+module.exports = { router, clearStatsCache };
