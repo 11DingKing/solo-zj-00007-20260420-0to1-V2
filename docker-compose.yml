@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: sales-dashboard-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sales_dashboard
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - sales-network
+
+  backend:
+    build: ./backend
+    container_name: sales-dashboard-backend
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: sales_dashboard
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
+    networks:
+      - sales-network
+
+  frontend:
+    build: ./frontend
+    container_name: sales-dashboard-frontend
+    ports:
+      - "4200:80"
+    depends_on:
+      - backend
+    networks:
+      - sales-network
+
+volumes:
+  postgres_data:
+
+networks:
+  sales-network:
+    driver: bridge

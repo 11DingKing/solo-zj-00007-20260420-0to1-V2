@@ -1,0 +1,53 @@
+<h1 class="page-title">商品销售排行</h1>
+
+<!-- 筛选区域 -->
+<div class="filters">
+  <div class="ranking-header">
+    <h2>Top 20 热销商品</h2>
+    <div class="ranking-controls">
+      <select (change)="onTimeRangeChange(+$any($event.target).value)" [value]="timeRange">
+        <option *ngFor="let opt of timeRangeOptions" [value]="opt.value">{{ opt.label }}</option>
+      </select>
+      
+      <select (change)="onSortByChange($any($event.target).value)" [value]="sortBy">
+        <option *ngFor="let opt of sortByOptions" [value]="opt.value">{{ opt.label }}</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<!-- 排行榜表格 -->
+<div class="ranking-table">
+  <div *ngIf="loading" style="text-align: center; padding: 40px;">
+    <p>加载中...</p>
+  </div>
+
+  <table *ngIf="!loading && rankings.length > 0">
+    <thead>
+      <tr>
+        <th>排名</th>
+        <th>商品名称</th>
+        <th>商品分类</th>
+        <th>销售数量</th>
+        <th>销售额</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr *ngFor="let item of rankings; let i = index">
+        <td>
+          <span class="rank-badge" [class]="getRankBadgeClass(i + 1)">
+            {{ i + 1 }}
+          </span>
+        </td>
+        <td>{{ item.productName }}</td>
+        <td>{{ item.categoryName }}</td>
+        <td>{{ item.totalQuantity }}</td>
+        <td>{{ formatCurrency(item.totalSales) }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div *ngIf="!loading && rankings.length === 0" style="text-align: center; padding: 40px; color: #718096;">
+    <p>暂无排行数据</p>
+  </div>
+</div>

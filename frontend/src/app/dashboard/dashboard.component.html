@@ -1,0 +1,57 @@
+<div *ngIf="loading" class="loading">
+  <p>加载中...</p>
+</div>
+
+<div *ngIf="!loading && dashboardData">
+  <h1 class="page-title">销售数据看板</h1>
+
+  <!-- 统计卡片 -->
+  <div class="stats-grid">
+    <div class="stat-card sales">
+      <div class="label">今日销售额</div>
+      <div class="value">{{ formatCurrency(dashboardData.todaySales) }}</div>
+    </div>
+    
+    <div class="stat-card orders">
+      <div class="label">今日订单数</div>
+      <div class="value">{{ dashboardData.todayOrders }}</div>
+    </div>
+    
+    <div class="stat-card month-sales">
+      <div class="label">本月销售额</div>
+      <div class="value">{{ formatCurrency(dashboardData.monthSales) }}</div>
+    </div>
+    
+    <div class="stat-card month-orders">
+      <div class="label">本月订单数</div>
+      <div class="value">{{ dashboardData.monthOrders }}</div>
+    </div>
+  </div>
+
+  <!-- 图表区域 -->
+  <div class="charts-container">
+    <!-- 折线图 -->
+    <div class="chart-card">
+      <h3>最近 30 天销售额趋势</h3>
+      <div style="height: 350px;">
+        <canvas baseChart
+          [type]="'line'"
+          [data]="lineChartData"
+          [options]="lineChartOptions">
+        </canvas>
+      </div>
+    </div>
+
+    <!-- 饼图 -->
+    <div class="chart-card">
+      <h3>各商品分类销售占比</h3>
+      <div style="height: 350px;">
+        <canvas baseChart
+          [type]="'pie'"
+          [data]="pieChartData"
+          [options]="pieChartOptions">
+        </canvas>
+      </div>
+    </div>
+  </div>
+</div>
