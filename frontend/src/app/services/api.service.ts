@@ -77,6 +77,27 @@ export interface ChartDataBundle {
   orderStatus: OrderStatusItem[];
 }
 
+export interface ProductOrderItem {
+  orderNo: string;
+  quantity: number;
+  subtotal: number;
+  status: string;
+  statusName: string;
+  createdAt: string;
+}
+
+export interface ProductDetail {
+  id: number;
+  productName: string;
+  categoryName: string;
+  price: number;
+}
+
+export interface ProductDetailResponse {
+  product: ProductDetail;
+  orders: ProductOrderItem[];
+}
+
 @Injectable({
   providedIn: "root",
 })
@@ -155,5 +176,11 @@ export class ApiService {
     return this.http.get<ProductRanking[]>(`${this.baseUrl}/products/ranking`, {
       params,
     });
+  }
+
+  getProductDetail(id: number): Observable<ProductDetailResponse> {
+    return this.http.get<ProductDetailResponse>(
+      `${this.baseUrl}/products/${id}`,
+    );
   }
 }

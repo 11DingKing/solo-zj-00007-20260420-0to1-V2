@@ -400,8 +400,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   navigateToProduct(productId: number): void {
-    console.log("Navigate to product:", productId);
-    alert(`跳转到商品详情页: 商品ID ${productId}`);
+    this.router.navigate(['/products', productId]);
   }
 
   exportToExcel(): void {
