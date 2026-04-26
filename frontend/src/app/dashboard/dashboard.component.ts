@@ -103,8 +103,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
     });
   }
 
-  onTimeRangeChange(value: number): void {
-    this.timeRange = value;
+  onTimeRangeChange(value: string): void {
+    this.timeRange = parseInt(value) || 30;
     this.loadOrderTrend();
   }
 
